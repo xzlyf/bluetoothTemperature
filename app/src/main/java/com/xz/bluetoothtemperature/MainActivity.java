@@ -8,9 +8,11 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.ListView;
@@ -20,6 +22,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.orhanobut.logger.Logger;
 import com.xz.bluetoothtemperature.bluetooth.BlueToothUtils;
@@ -37,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
     private Switch switchBluetooth;
     private Button searchButton;
     private ListView bondedList;
-    private ListView newDeviceList;
+    private ListView newBondedList;
     private DeviceAdapter bondedAdapter;
     private DeviceAdapter newbondedAdapter;
 
@@ -58,30 +61,32 @@ public class MainActivity extends AppCompatActivity {
 
     private void initPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("警告")
-                    .setMessage("连接蓝牙设备需要开启以下权限\n拒绝将无法正常开启该功能")
-                    .setPositiveButton("继续", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int which) {
-                            ActivityCompat.requestPermissions(MainActivity.this, new String[]{
-                                            Manifest.permission.ACCESS_FINE_LOCATION},
-                                    12345);
-                            dialog.dismiss();
-                            dialog.cancel();
+            if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("警告")
+                        .setMessage("连接蓝牙设备需要开启以下权限\n拒绝将无法正常开启该功能")
+                        .setPositiveButton("继续", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                ActivityCompat.requestPermissions(MainActivity.this, new String[]{
+                                                Manifest.permission.ACCESS_FINE_LOCATION},
+                                        12345);
+                                dialog.dismiss();
+                                dialog.cancel();
 
-                        }
-                    })
-                    .setNegativeButton("取消", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int which) {
-                            dialog.dismiss();
-                            dialog.cancel();
-                        }
-                    })
-                    .create();
+                            }
+                        })
+                        .setNegativeButton("取消", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                dialog.dismiss();
+                                dialog.cancel();
+                            }
+                        })
+                        .create();
 
-            dialog.show();
+                dialog.show();
+            }
 
         }
     }
@@ -90,9 +95,9 @@ public class MainActivity extends AppCompatActivity {
         switchBluetooth = findViewById(R.id.switchBluetooth);
         searchButton = findViewById(R.id.searchButton);
         bondedList = findViewById(R.id.bondedDeviceList);
-        newDeviceList = findViewById(R.id.newDeviceList);
+        newBondedList = findViewById(R.id.newDeviceList);
         newbondedAdapter = new DeviceAdapter(MainActivity.this, R.layout.item_device, new ArrayList<BluetoothDevice>());
-        newDeviceList.setAdapter(newbondedAdapter);
+        newBondedList.setAdapter(newbondedAdapter);
 
         switchBluetooth.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
@@ -116,12 +121,24 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
-                clearList();
-                //开始搜索蓝牙
-                blueToothUtils.searchDevices();
-                //刷新已配对列表
-                refreshBondedList(blueToothUtils.getBondedDevices());
+                refreshList();
 
+            }
+        });
+
+        //已绑定列表点击事件
+        bondedList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                showDeviceOptionDialog(bondedAdapter.getItem(position));
+
+            }
+        });
+        //未绑定列表点击事件
+        newBondedList.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                showDeviceOptionDialog(newbondedAdapter.getItem(position));
             }
         });
     }
@@ -158,6 +175,18 @@ public class MainActivity extends AppCompatActivity {
             newbondedAdapter.clear();
         }
     }
+
+    /**
+     * 刷新两个列表
+     */
+    private void refreshList() {
+        clearList();
+        //开始搜索蓝牙
+        blueToothUtils.searchDevices();
+        //刷新已配对列表
+        refreshBondedList(blueToothUtils.getBondedDevices());
+    }
+
 
     /**
      * 刷新已绑定列表
@@ -201,6 +230,22 @@ public class MainActivity extends AppCompatActivity {
     private void setSearchButtonState(String text, boolean isEnable) {
         searchButton.setText(text);
         searchButton.setEnabled(isEnable);
+    }
+
+    private DeviceDialog deviceDialog;
+
+    /**
+     * 显示蓝牙设备控制的对话框
+     *
+     * @param device
+     */
+    private void showDeviceOptionDialog(BluetoothDevice device) {
+        if (deviceDialog == null) {
+            deviceDialog = new DeviceDialog(MainActivity.this);
+            deviceDialog.create();
+        }
+        deviceDialog.setDevice(device);
+        deviceDialog.show();
     }
 
 
@@ -285,8 +330,15 @@ public class MainActivity extends AppCompatActivity {
                     //没有配对
                     addNewBondedDevice(device);
                 }
+                break;
             }
-            break;
+            case BluetoothDevice.ACTION_BOND_STATE_CHANGED:
+                //某个远程设备的绑定状态改变
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (device.getBondState() == BluetoothDevice.BOND_BONDED || device.getBondState() == BluetoothDevice.BOND_NONE) {
+                    refreshList();
+                }
+                break;
 
         }
     }

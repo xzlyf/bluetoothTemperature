@@ -47,7 +47,7 @@ public class DeviceAdapter extends ArrayAdapter<BluetoothDevice> {
         TextView t2 = view.findViewById(R.id.tv2);
         BluetoothDevice device = getItem(position);
         if (device != null) {
-            t1.setText(device.getName());
+            t1.setText(device.getName()==null?device.getAddress():device.getName());
             t2.setText(device.getAddress());
         }
         return view;
